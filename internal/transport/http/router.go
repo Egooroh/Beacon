@@ -20,17 +20,31 @@ type DBPinger interface {
 }
 
 // New assembles and returns the application HTTP router.
-func New(log *slog.Logger, db DBPinger) http.Handler {
+func New(
+	log *slog.Logger,
+	db DBPinger,
+	ingester handler.Ingester,
+	projects handler.ProjectCreator,
+) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimw.RequestID)
 	r.Use(middleware.Recover(log))
 	r.Use(middleware.Logging(log))
 
+	// Infrastructure endpoints — always available.
 	health := handler.NewHealthHandler(db)
 	r.Get("/healthz", health.Healthz)
 	r.Get("/readyz", health.Readyz)
 	r.Handle("/metrics", promhttp.Handler())
+
+	// REST API v1.
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Post("/projects", handler.NewProjectHandler(projects).Create)
+
+		// Ingest requires a valid X-Beacon-Token; the use case performs DB auth.
+		r.With(middleware.RequireToken).Post("/ingest", handler.NewIngestHandler(ingester).Handle)
+	})
 
 	return r
 }

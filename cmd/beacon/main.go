@@ -11,11 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Egooroh/beacon/internal/adapter/ingest/generic"
+	"github.com/Egooroh/beacon/internal/adapter/repository/postgres"
 	"github.com/Egooroh/beacon/internal/infrastructure/config"
 	"github.com/Egooroh/beacon/internal/infrastructure/logger"
 	"github.com/Egooroh/beacon/internal/infrastructure/metrics"
-	"github.com/Egooroh/beacon/internal/infrastructure/postgres"
+	infrapg "github.com/Egooroh/beacon/internal/infrastructure/postgres"
 	server "github.com/Egooroh/beacon/internal/transport/http"
+	"github.com/Egooroh/beacon/internal/usecase/ingest"
+	"github.com/Egooroh/beacon/internal/usecase/project"
 	"github.com/Egooroh/beacon/migrations"
 )
 
@@ -32,7 +36,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	pool, err := postgres.NewPool(ctx, cfg.DBDSN)
+	pool, err := infrapg.NewPool(ctx, cfg.DBDSN)
 	if err != nil {
 		log.Error("connect to database", "error", err)
 		os.Exit(1)
@@ -44,7 +48,7 @@ func main() {
 		log.Error("migrations fs", "error", err)
 		os.Exit(1)
 	}
-	if err := postgres.RunMigrations(ctx, cfg.DBDSN, migrationsFS); err != nil {
+	if err := infrapg.RunMigrations(ctx, cfg.DBDSN, migrationsFS); err != nil {
 		log.Error("run migrations", "error", err)
 		os.Exit(1)
 	}
@@ -54,7 +58,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := server.New(log, pool)
+	// ── Adapters ──────────────────────────────────────────────────────────────
+	eventRepo := pgstore.NewEventRepository(pool)
+	projectRepo := pgstore.NewProjectRepository(pool)
+	parser := generic.New()
+
+	// ── Use cases ─────────────────────────────────────────────────────────────
+	ingestUC := ingest.New(eventRepo, projectRepo, parser, ingest.SystemClock)
+	projectUC := project.New(projectRepo)
+
+	// ── HTTP server ───────────────────────────────────────────────────────────
+	r := server.New(log, pool, ingestUC, projectUC)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddr,
