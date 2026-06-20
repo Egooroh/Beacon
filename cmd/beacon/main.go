@@ -11,13 +11,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Egooroh/beacon/internal/adapter/fingerprint"
 	"github.com/Egooroh/beacon/internal/adapter/ingest/generic"
-	"github.com/Egooroh/beacon/internal/adapter/repository/postgres"
+	pgstore "github.com/Egooroh/beacon/internal/adapter/repository/postgres"
 	"github.com/Egooroh/beacon/internal/infrastructure/config"
 	"github.com/Egooroh/beacon/internal/infrastructure/logger"
 	"github.com/Egooroh/beacon/internal/infrastructure/metrics"
 	infrapg "github.com/Egooroh/beacon/internal/infrastructure/postgres"
+	"github.com/Egooroh/beacon/internal/infrastructure/scheduler"
 	server "github.com/Egooroh/beacon/internal/transport/http"
+	"github.com/Egooroh/beacon/internal/usecase/grouping"
 	"github.com/Egooroh/beacon/internal/usecase/ingest"
 	"github.com/Egooroh/beacon/internal/usecase/project"
 	"github.com/Egooroh/beacon/migrations"
@@ -59,13 +62,16 @@ func main() {
 	}
 
 	// ── Adapters ──────────────────────────────────────────────────────────────
-	eventRepo := pgstore.NewEventRepository(pool)
+	eventRepo   := pgstore.NewEventRepository(pool)
 	projectRepo := pgstore.NewProjectRepository(pool)
-	parser := generic.New()
+	issueRepo   := pgstore.NewIssueRepository(pool)
+	parser      := generic.New()
+	fp          := fingerprint.New()
 
 	// ── Use cases ─────────────────────────────────────────────────────────────
-	ingestUC := ingest.New(eventRepo, projectRepo, parser, ingest.SystemClock)
-	projectUC := project.New(projectRepo)
+	ingestUC    := ingest.New(eventRepo, projectRepo, parser, ingest.SystemClock)
+	projectUC   := project.New(projectRepo)
+	groupingUC  := grouping.New(eventRepo, issueRepo, fp, grouping.SystemClock, log, cfg.ProcessBatch)
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	r := server.New(log, pool, ingestUC, projectUC)
@@ -85,6 +91,9 @@ func main() {
 			cancel()
 		}
 	}()
+
+	// ── Background workers ────────────────────────────────────────────────────
+	go scheduler.RunWorker(ctx, log, "processor", cfg.ProcessInterval, groupingUC.ProcessBatch)
 
 	<-ctx.Done()
 	log.Info("shutting down")
