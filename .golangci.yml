@@ -1,0 +1,53 @@
+run:
+  timeout: 5m
+  go: "1.22"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - revive
+    - gocritic
+    - sloglint
+    - goimports
+    - gosimple
+    - ineffassign
+    - unused
+    - noctx
+    - bodyclose
+
+linters-settings:
+  errcheck:
+    # blank-identifier assignments (e.g., _ = w.Write) are intentional; don't flag them.
+    check-blank: false
+
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - "checkPrivateReceivers"
+          - "sayRepetitiveInsteadOfStutters"
+      - name: unused-parameter
+      - name: context-as-argument
+        arguments:
+          - "allowTypesBefore": "*testing.T"
+
+  sloglint:
+    no-mixed-args: true
+    kv-only: true
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+
+issues:
+  exclude-rules:
+    # Test files: relax some rules that don't add value in test context.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gocritic
+        - revive
