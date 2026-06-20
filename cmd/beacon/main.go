@@ -11,8 +11,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Egooroh/beacon/internal/domain"
 	"github.com/Egooroh/beacon/internal/adapter/fingerprint"
 	"github.com/Egooroh/beacon/internal/adapter/ingest/generic"
+	tgnotify "github.com/Egooroh/beacon/internal/adapter/notify/telegram"
 	pgstore "github.com/Egooroh/beacon/internal/adapter/repository/postgres"
 	"github.com/Egooroh/beacon/internal/infrastructure/config"
 	"github.com/Egooroh/beacon/internal/infrastructure/logger"
@@ -20,11 +22,21 @@ import (
 	infrapg "github.com/Egooroh/beacon/internal/infrastructure/postgres"
 	"github.com/Egooroh/beacon/internal/infrastructure/scheduler"
 	server "github.com/Egooroh/beacon/internal/transport/http"
+	"github.com/Egooroh/beacon/internal/usecase/alerting"
+	"github.com/Egooroh/beacon/internal/usecase/digest"
 	"github.com/Egooroh/beacon/internal/usecase/grouping"
 	"github.com/Egooroh/beacon/internal/usecase/ingest"
+	issueuc "github.com/Egooroh/beacon/internal/usecase/issue"
 	"github.com/Egooroh/beacon/internal/usecase/project"
+	"github.com/Egooroh/beacon/internal/usecase/subscription"
 	"github.com/Egooroh/beacon/migrations"
 )
+
+const defaultTopN = 10
+
+type noopAlerter struct{}
+
+func (noopAlerter) MaybeAlert(context.Context, *domain.Issue, domain.AlertType) error { return nil }
 
 func main() {
 	cfg, err := config.Load()
@@ -65,16 +77,49 @@ func main() {
 	eventRepo   := pgstore.NewEventRepository(pool)
 	projectRepo := pgstore.NewProjectRepository(pool)
 	issueRepo   := pgstore.NewIssueRepository(pool)
+	subRepo     := pgstore.NewSubscriptionRepository(pool)
 	parser      := generic.New()
 	fp          := fingerprint.New()
+
+	// ── Notifier (noop when token not configured) ──────────────────────────────
+	var alertingUC *alerting.Service
+	if cfg.TelegramToken != "" {
+		notifier := tgnotify.New(cfg.TelegramToken)
+		alertingUC = alerting.New(
+			notifier, issueRepo, projectRepo, subRepo,
+			alerting.SystemClock, log,
+			cfg.AlertCooldown, cfg.SpikeFactor, cfg.SpikeMin,
+		)
+	}
+
+	// alerter passed to grouping: may be nil → noop alerter inside grouping
+	var groupAlerter grouping.Alerter
+	if alertingUC != nil {
+		groupAlerter = alertingUC
+	} else {
+		groupAlerter = noopAlerter{}
+	}
 
 	// ── Use cases ─────────────────────────────────────────────────────────────
 	ingestUC    := ingest.New(eventRepo, projectRepo, parser, ingest.SystemClock)
 	projectUC   := project.New(projectRepo)
-	groupingUC  := grouping.New(eventRepo, issueRepo, fp, grouping.SystemClock, log, cfg.ProcessBatch)
+	subscripUC  := subscription.New(subRepo, projectRepo)
+	issueUC     := issueuc.New(issueRepo)
+	groupingUC  := grouping.New(eventRepo, issueRepo, fp, groupAlerter, grouping.SystemClock, log, cfg.ProcessBatch)
+
+	// ── Digest worker ─────────────────────────────────────────────────────────
+	var digestSvc *digest.Service
+	if alertingUC != nil {
+		digestSvc = digest.New(
+			issueRepo, subRepo, projectRepo,
+			tgnotify.New(cfg.TelegramToken),
+			digest.SystemClock, log,
+			cfg.DigestInterval, defaultTopN,
+		)
+	}
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
-	r := server.New(log, pool, ingestUC, projectUC)
+	r := server.New(log, pool, ingestUC, projectUC, subscripUC, issueUC)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddr,
@@ -94,6 +139,12 @@ func main() {
 
 	// ── Background workers ────────────────────────────────────────────────────
 	go scheduler.RunWorker(ctx, log, "processor", cfg.ProcessInterval, groupingUC.ProcessBatch)
+	if alertingUC != nil {
+		go scheduler.RunWorker(ctx, log, "spike-checker", cfg.DigestInterval, alertingUC.CheckSpikes)
+	}
+	if digestSvc != nil {
+		go scheduler.RunWorker(ctx, log, "digest", cfg.DigestInterval, digestSvc.SendDigest)
+	}
 
 	<-ctx.Done()
 	log.Info("shutting down")

@@ -29,6 +29,11 @@ type Fingerprinter interface {
 	Compute(e *domain.Event) domain.Fingerprint
 }
 
+// Alerter dispatches notifications for significant issue state changes.
+type Alerter interface {
+	MaybeAlert(ctx context.Context, issue *domain.Issue, t domain.AlertType) error
+}
+
 // Clock is the time source; injectable for deterministic tests.
 type Clock interface {
 	Now() time.Time

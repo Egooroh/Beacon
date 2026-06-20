@@ -25,6 +25,8 @@ func New(
 	db DBPinger,
 	ingester handler.Ingester,
 	projects handler.ProjectCreator,
+	subscriber handler.Subscriber,
+	issues handler.IssueManager,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -41,6 +43,16 @@ func New(
 	// REST API v1.
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/projects", handler.NewProjectHandler(projects).Create)
+
+		subH := handler.NewSubscriptionHandler(subscriber)
+		r.Route("/projects/{id}/subscriptions", func(r chi.Router) {
+			r.Post("/", subH.Create)
+			r.Get("/", subH.List)
+		})
+
+		issueH := handler.NewIssueHandler(issues)
+		r.Get("/projects/{id}/issues", issueH.List)
+		r.Patch("/issues/{id}/status", issueH.SetStatus)
 
 		// Ingest requires a valid X-Beacon-Token; the use case performs DB auth.
 		r.With(middleware.RequireToken).Post("/ingest", handler.NewIngestHandler(ingester).Handle)

@@ -2,9 +2,11 @@ package pgstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Egooroh/beacon/internal/domain"
@@ -123,6 +125,130 @@ func (r *IssueRepository) UpdateStatus(ctx context.Context, issueID string, s do
 		return fmt.Errorf("update status: %w", err)
 	}
 	return nil
+}
+
+// UpdateLastAlertAt records when an alert was last sent for an issue.
+func (r *IssueRepository) UpdateLastAlertAt(ctx context.Context, issueID string, t time.Time) error {
+	const q = `UPDATE issues SET last_alert_at = $2 WHERE id = $1`
+	if _, err := r.db.Exec(ctx, q, issueID, t); err != nil {
+		return fmt.Errorf("update last_alert_at: %w", err)
+	}
+	return nil
+}
+
+// ListOpen returns up to limit open issues across all projects, newest-first.
+func (r *IssueRepository) ListOpen(ctx context.Context, limit int) ([]*domain.Issue, error) {
+	const q = `
+		SELECT id, project_id, fingerprint, title, level, status,
+		       events_count, first_seen_at, last_seen_at, last_alert_at
+		FROM issues
+		WHERE status = 'open'
+		ORDER BY last_seen_at DESC
+		LIMIT $1`
+
+	rows, err := r.db.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list open issues: %w", err)
+	}
+	defer rows.Close()
+
+	var issues []*domain.Issue
+	for rows.Next() {
+		var (
+			iss       domain.Issue
+			fpStr     string
+			levelStr  string
+			statusStr string
+		)
+		if err := rows.Scan(
+			&iss.ID, &iss.ProjectID, &fpStr, &iss.Title,
+			&levelStr, &statusStr,
+			&iss.EventsCount, &iss.FirstSeenAt, &iss.LastSeenAt, &iss.LastAlertAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan open issue: %w", err)
+		}
+		iss.Fingerprint = domain.Fingerprint(fpStr)
+		iss.Level = domain.Level(levelStr)
+		iss.Status = domain.IssueStatus(statusStr)
+		issues = append(issues, &iss)
+	}
+	return issues, rows.Err()
+}
+
+// FindByID fetches a single issue by primary key.
+// Returns domain.ErrNotFound when no issue matches.
+func (r *IssueRepository) FindByID(ctx context.Context, id string) (*domain.Issue, error) {
+	const q = `
+		SELECT id, project_id, fingerprint, title, level, status,
+		       events_count, first_seen_at, last_seen_at, last_alert_at
+		FROM issues WHERE id = $1`
+
+	var (
+		iss       domain.Issue
+		fpStr     string
+		levelStr  string
+		statusStr string
+	)
+	err := r.db.QueryRow(ctx, q, id).Scan(
+		&iss.ID, &iss.ProjectID, &fpStr, &iss.Title,
+		&levelStr, &statusStr,
+		&iss.EventsCount, &iss.FirstSeenAt, &iss.LastSeenAt, &iss.LastAlertAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find issue: %w", err)
+	}
+	iss.Fingerprint = domain.Fingerprint(fpStr)
+	iss.Level = domain.Level(levelStr)
+	iss.Status = domain.IssueStatus(statusStr)
+	return &iss, nil
+}
+
+// ListByProject returns paginated issues for a project, optionally filtered by status.
+// An empty status string returns all statuses. Returns issues and total matching count.
+func (r *IssueRepository) ListByProject(ctx context.Context, projectID, status string, limit, offset int) ([]*domain.Issue, int64, error) {
+	const q = `
+		SELECT id, project_id, fingerprint, title, level, status,
+		       events_count, first_seen_at, last_seen_at, last_alert_at,
+		       COUNT(*) OVER() AS total
+		FROM issues
+		WHERE project_id = $1 AND ($2 = '' OR status = $2)
+		ORDER BY events_count DESC
+		LIMIT $3 OFFSET $4`
+
+	rows, err := r.db.Query(ctx, q, projectID, status, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list issues: %w", err)
+	}
+	defer rows.Close()
+
+	var (
+		issues []*domain.Issue
+		total  int64
+	)
+	for rows.Next() {
+		var (
+			iss       domain.Issue
+			fpStr     string
+			levelStr  string
+			statusStr string
+		)
+		if err := rows.Scan(
+			&iss.ID, &iss.ProjectID, &fpStr, &iss.Title,
+			&levelStr, &statusStr,
+			&iss.EventsCount, &iss.FirstSeenAt, &iss.LastSeenAt, &iss.LastAlertAt,
+			&total,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan issue: %w", err)
+		}
+		iss.Fingerprint = domain.Fingerprint(fpStr)
+		iss.Level = domain.Level(levelStr)
+		iss.Status = domain.IssueStatus(statusStr)
+		issues = append(issues, &iss)
+	}
+	return issues, total, rows.Err()
 }
 
 // issueTitle derives a human-readable title from an event.

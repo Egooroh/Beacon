@@ -37,6 +37,22 @@ func (r *ProjectRepository) FindByTokenHash(ctx context.Context, tokenHash strin
 	return &p, nil
 }
 
+// FindByID looks up a project by its primary key.
+// Returns domain.ErrNotFound when no project matches.
+func (r *ProjectRepository) FindByID(ctx context.Context, id string) (*domain.Project, error) {
+	const q = `SELECT id, name, token_hash, created_at FROM projects WHERE id = $1`
+
+	var p domain.Project
+	err := r.db.QueryRow(ctx, q, id).Scan(&p.ID, &p.Name, &p.TokenHash, &p.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find project by id: %w", err)
+	}
+	return &p, nil
+}
+
 // Create inserts a new project and returns it with the DB-assigned ID and created_at.
 func (r *ProjectRepository) Create(ctx context.Context, name, tokenHash string) (*domain.Project, error) {
 	const q = `

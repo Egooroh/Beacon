@@ -14,6 +14,7 @@ type UseCase struct {
 	events        EventRepository
 	issues        IssueRepository
 	fingerprinter Fingerprinter
+	alerter       Alerter
 	clock         Clock
 	log           *slog.Logger
 	batchSize     int
@@ -24,6 +25,7 @@ func New(
 	events EventRepository,
 	issues IssueRepository,
 	fingerprinter Fingerprinter,
+	alerter Alerter,
 	clock Clock,
 	log *slog.Logger,
 	batchSize int,
@@ -32,6 +34,7 @@ func New(
 		events:        events,
 		issues:        issues,
 		fingerprinter: fingerprinter,
+		alerter:       alerter,
 		clock:         clock,
 		log:           log,
 		batchSize:     batchSize,
@@ -63,14 +66,28 @@ func (uc *UseCase) processOne(ctx context.Context, ev *domain.Event) error {
 	if err := uc.events.SetProcessed(ctx, ev.ID, issue.ID, ev.Fingerprint); err != nil {
 		return fmt.Errorf("set processed: %w", err)
 	}
-	if created {
-		uc.log.Info("new issue",
-			"issue_id", issue.ID,
-			"fingerprint", issue.Fingerprint,
-			"title", issue.Title,
-		)
+
+	switch {
+	case created:
+		uc.log.Info("new issue", "issue_id", issue.ID, "title", issue.Title)
+		uc.alert(ctx, issue, domain.AlertNewIssue)
+	case issue.Status == domain.StatusResolved:
+		// Regression: a resolved issue is seeing events again — reopen it.
+		if err := uc.issues.UpdateStatus(ctx, issue.ID, domain.StatusOpen); err != nil {
+			uc.log.Error("reopen issue", "issue_id", issue.ID, "error", err)
+		}
+		issue.Status = domain.StatusOpen
+		uc.log.Info("issue regression", "issue_id", issue.ID, "title", issue.Title)
+		uc.alert(ctx, issue, domain.AlertRegression)
 	}
 	return nil
+}
+
+// alert calls the alerter and logs errors without propagating them.
+func (uc *UseCase) alert(ctx context.Context, issue *domain.Issue, t domain.AlertType) {
+	if err := uc.alerter.MaybeAlert(ctx, issue, t); err != nil {
+		uc.log.Error("alert failed", "issue_id", issue.ID, "alert_type", t, "error", err)
+	}
 }
 
 // SystemClock is the production Clock backed by time.Now.
