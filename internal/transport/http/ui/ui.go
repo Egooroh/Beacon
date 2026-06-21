@@ -4,4 +4,5 @@ package ui
 import "embed"
 
 //go:embed index.html
+// Files holds the embedded static web dashboard assets.
 var Files embed.FS
