@@ -78,7 +78,7 @@ func newService(n alerting.Notifier, ir alerting.IssueRepository, pr alerting.Pr
 	sr alerting.SubscriptionRepository, clk alerting.Clock, cooldown time.Duration,
 ) *alerting.Service {
 	return alerting.New([]alerting.Notifier{n}, ir, pr, sr, clk, slog.New(slog.NewTextHandler(io.Discard, nil)),
-		cooldown, 5.0, 10)
+		cooldown, 5.0, 10, nil)
 }
 
 // ── MaybeAlert tests ──────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ func TestCheckSpikes_SpikeTriggersAlert(t *testing.T) {
 	pr := &fakeProjectRepo{project: &domain.Project{ID: "p", Name: "App"}}
 
 	svc := alerting.New([]alerting.Notifier{n}, ir2, pr, sr, &fixedClock{t: time.Now()},
-		slog.New(slog.NewTextHandler(io.Discard, nil)), time.Minute, 5.0, 10)
+		slog.New(slog.NewTextHandler(io.Discard, nil)), time.Minute, 5.0, 10, nil)
 
 	require.NoError(t, svc.CheckSpikes(context.Background()))
 	assert.Len(t, n.calls, 1, "spike should trigger one alert")
@@ -182,7 +182,7 @@ func TestCheckSpikes_NoBaseline_NoAlert(t *testing.T) {
 	}
 	svc := alerting.New([]alerting.Notifier{n}, ir, &fakeProjectRepo{project: &domain.Project{}},
 		&fakeSubRepo{}, &fixedClock{t: time.Now()},
-		slog.New(slog.NewTextHandler(io.Discard, nil)), time.Minute, 5.0, 10)
+		slog.New(slog.NewTextHandler(io.Discard, nil)), time.Minute, 5.0, 10, nil)
 
 	require.NoError(t, svc.CheckSpikes(context.Background()))
 	assert.Empty(t, n.calls)

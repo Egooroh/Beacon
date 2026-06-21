@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beacon — Error Aggregator</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
+  header{background:#1a1d27;border-bottom:1px solid #2d3148;padding:16px 24px;display:flex;align-items:center;gap:12px}
+  header h1{font-size:20px;font-weight:700;color:#7c8dfc}
+  header span{font-size:13px;color:#64748b}
+  .container{max-width:1100px;margin:0 auto;padding:24px}
+  .toolbar{display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap}
+  .toolbar input{flex:1;min-width:200px;background:#1a1d27;border:1px solid #2d3148;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;outline:none}
+  .toolbar input:focus{border-color:#7c8dfc}
+  .toolbar select{background:#1a1d27;border:1px solid #2d3148;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;outline:none;cursor:pointer}
+  .btn{padding:10px 18px;border-radius:8px;border:none;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s}
+  .btn:hover{opacity:.85}
+  .btn-primary{background:#7c8dfc;color:#fff}
+  .btn-sm{padding:5px 10px;font-size:12px;border-radius:5px;border:none;cursor:pointer;font-weight:600}
+  .btn-mute{background:#374151;color:#9ca3af}
+  .btn-resolve{background:#064e3b;color:#34d399}
+  .btn-reopen{background:#312e81;color:#818cf8}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;padding:10px 14px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;border-bottom:1px solid #2d3148}
+  td{padding:12px 14px;border-bottom:1px solid #1a1d27;font-size:14px;vertical-align:middle}
+  tr:hover td{background:#1a1d27}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase}
+  .badge-error{background:#450a0a;color:#f87171}
+  .badge-fatal{background:#2d0a0a;color:#fca5a5}
+  .badge-warning{background:#451a03;color:#fb923c}
+  .badge-info{background:#0c2942;color:#60a5fa}
+  .badge-debug{background:#1e293b;color:#94a3b8}
+  .badge-open{background:#052e16;color:#4ade80}
+  .badge-resolved{background:#1e293b;color:#94a3b8}
+  .badge-muted{background:#1c1917;color:#78716c}
+  .badge-ignored{background:#1c1917;color:#57534e}
+  .count{font-variant-numeric:tabular-nums;color:#a3b1c6}
+  .title{max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ts{color:#64748b;font-size:12px}
+  .empty{text-align:center;padding:60px;color:#4b5563}
+  .error-msg{background:#450a0a;border:1px solid #7f1d1d;border-radius:8px;padding:14px;margin-bottom:16px;color:#f87171;font-size:14px}
+  .pagination{display:flex;gap:8px;align-items:center;margin-top:16px;justify-content:flex-end;font-size:13px;color:#64748b}
+  .pagination button{background:#1a1d27;border:1px solid #2d3148;color:#e2e8f0;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
+  .pagination button:disabled{opacity:.4;cursor:default}
+</style>
+</head>
+<body>
+<header>
+  <h1>&#9650; Beacon</h1>
+  <span>Error Aggregator Dashboard</span>
+</header>
+<div class="container">
+  <div class="toolbar">
+    <input id="projectId" type="text" placeholder="Project ID (UUID)" />
+    <select id="statusFilter">
+      <option value="">All statuses</option>
+      <option value="open">Open</option>
+      <option value="resolved">Resolved</option>
+      <option value="muted">Muted</option>
+      <option value="ignored">Ignored</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadIssues()">Load Issues</button>
+  </div>
+  <div id="error" class="error-msg" style="display:none"></div>
+  <div id="content"></div>
+  <div class="pagination" id="pagination" style="display:none">
+    <button id="prevBtn" onclick="prevPage()">&#8592; Prev</button>
+    <span id="pageInfo"></span>
+    <button id="nextBtn" onclick="nextPage()">Next &#8594;</button>
+  </div>
+</div>
+<script>
+const PAGE = 25;
+let currentOffset = 0;
+let totalCount = 0;
+let currentProject = '';
+let currentStatus = '';
+
+function showError(msg) {
+  const el = document.getElementById('error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function clearError() {
+  document.getElementById('error').style.display = 'none';
+}
+
+async function loadIssues(offset) {
+  const pid = document.getElementById('projectId').value.trim();
+  const status = document.getElementById('statusFilter').value;
+  if (!pid) { showError('Enter a project ID'); return; }
+  clearError();
+  currentProject = pid;
+  currentStatus = status;
+  currentOffset = offset ?? 0;
+
+  const params = new URLSearchParams({ limit: PAGE, offset: currentOffset });
+  if (status) params.set('status', status);
+
+  try {
+    const resp = await fetch(`/api/v1/projects/${encodeURIComponent(pid)}/issues?${params}`);
+    if (!resp.ok) { showError(`HTTP ${resp.status}: ${resp.statusText}`); return; }
+    const data = await resp.json();
+    totalCount = data.total ?? 0;
+    renderTable(data.items ?? []);
+    renderPagination();
+  } catch(e) {
+    showError('Request failed: ' + e.message);
+  }
+}
+
+function renderTable(issues) {
+  const el = document.getElementById('content');
+  if (!issues.length) {
+    el.innerHTML = '<div class="empty">No issues found.</div>';
+    return;
+  }
+  const rows = issues.map(i => {
+    const level = i.level || 'error';
+    const status = i.status || 'open';
+    const actions = [
+      status !== 'muted'     ? `<button class="btn-sm btn-mute"    onclick="setStatus('${i.id}','muted')">Mute</button>` : '',
+      status !== 'resolved'  ? `<button class="btn-sm btn-resolve"  onclick="setStatus('${i.id}','resolved')">Resolve</button>` : '',
+      status !== 'open'      ? `<button class="btn-sm btn-reopen"   onclick="setStatus('${i.id}','open')">Reopen</button>` : '',
+    ].filter(Boolean).join(' ');
+    return `<tr>
+      <td class="title" title="${esc(i.title)}">${esc(i.title)}</td>
+      <td><span class="badge badge-${level}">${level}</span></td>
+      <td><span class="badge badge-${status}">${status}</span></td>
+      <td class="count">${(i.events_count ?? 0).toLocaleString()}</td>
+      <td class="ts">${fmt(i.first_seen_at)}</td>
+      <td class="ts">${fmt(i.last_seen_at)}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<table>
+    <thead><tr>
+      <th>Title</th><th>Level</th><th>Status</th>
+      <th>Events</th><th>First seen</th><th>Last seen</th><th>Actions</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderPagination() {
+  const pg = document.getElementById('pagination');
+  if (totalCount <= PAGE) { pg.style.display = 'none'; return; }
+  pg.style.display = 'flex';
+  const page = Math.floor(currentOffset / PAGE) + 1;
+  const pages = Math.ceil(totalCount / PAGE);
+  document.getElementById('pageInfo').textContent = `Page ${page} of ${pages} (${totalCount} total)`;
+  document.getElementById('prevBtn').disabled = currentOffset === 0;
+  document.getElementById('nextBtn').disabled = currentOffset + PAGE >= totalCount;
+}
+
+function prevPage() { loadIssues(Math.max(0, currentOffset - PAGE)); }
+function nextPage() { loadIssues(currentOffset + PAGE); }
+
+async function setStatus(issueId, status) {
+  clearError();
+  try {
+    const resp = await fetch(`/api/v1/issues/${issueId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!resp.ok) { showError(`Failed to update status: HTTP ${resp.status}`); return; }
+    loadIssues(currentOffset);
+  } catch(e) {
+    showError('Request failed: ' + e.message);
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmt(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleString(); } catch { return ts; }
+}
+</script>
+</body>
+</html>

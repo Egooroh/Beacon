@@ -18,9 +18,10 @@ type UseCase struct {
 	clock         Clock
 	log           *slog.Logger
 	batchSize     int
+	metrics       MetricsRecorder
 }
 
-// New creates a grouping UseCase.
+// New creates a grouping UseCase. metrics may be nil to disable recording.
 func New(
 	events EventRepository,
 	issues IssueRepository,
@@ -29,6 +30,7 @@ func New(
 	clock Clock,
 	log *slog.Logger,
 	batchSize int,
+	metrics MetricsRecorder,
 ) *UseCase {
 	return &UseCase{
 		events:        events,
@@ -38,6 +40,7 @@ func New(
 		clock:         clock,
 		log:           log,
 		batchSize:     batchSize,
+		metrics:       metrics,
 	}
 }
 
@@ -47,6 +50,9 @@ func (uc *UseCase) ProcessBatch(ctx context.Context) error {
 	events, err := uc.events.ListUnprocessed(ctx, uc.batchSize)
 	if err != nil {
 		return fmt.Errorf("list unprocessed: %w", err)
+	}
+	if uc.metrics != nil {
+		uc.metrics.SetProcessingLag(len(events))
 	}
 	for _, ev := range events {
 		if err := uc.processOne(ctx, ev); err != nil {
@@ -65,6 +71,13 @@ func (uc *UseCase) processOne(ctx context.Context, ev *domain.Event) error {
 	}
 	if err := uc.events.SetProcessed(ctx, ev.ID, issue.ID, ev.Fingerprint); err != nil {
 		return fmt.Errorf("set processed: %w", err)
+	}
+
+	if uc.metrics != nil {
+		uc.metrics.RecordEventProcessed()
+		if created {
+			uc.metrics.RecordIssueCreated()
+		}
 	}
 
 	switch {

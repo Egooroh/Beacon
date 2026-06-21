@@ -93,7 +93,7 @@ func discardLogger() *slog.Logger {
 func newUC(events grouping.EventRepository, issues grouping.IssueRepository,
 	fp grouping.Fingerprinter, alerter grouping.Alerter,
 ) *grouping.UseCase {
-	return grouping.New(events, issues, fp, alerter, &fakeClock{}, discardLogger(), 10)
+	return grouping.New(events, issues, fp, alerter, &fakeClock{}, discardLogger(), 10, nil)
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────

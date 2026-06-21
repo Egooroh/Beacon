@@ -71,7 +71,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if _, err := metrics.New(); err != nil {
+	collector, err := metrics.New()
+	if err != nil {
 		log.Error("register metrics", "error", err)
 		os.Exit(1)
 	}
@@ -111,6 +112,7 @@ func main() {
 			alertNotifiers, issueRepo, projectRepo, subRepo,
 			alerting.SystemClock, log,
 			cfg.AlertCooldown, cfg.SpikeFactor, cfg.SpikeMin,
+			collector,
 		)
 	}
 
@@ -121,7 +123,11 @@ func main() {
 		groupAlerter = noopAlerter{}
 	}
 
-	groupingUC := grouping.New(eventRepo, issueRepo, fp, groupAlerter, grouping.SystemClock, log, cfg.ProcessBatch)
+	groupingUC := grouping.New(
+		eventRepo, issueRepo, fp, groupAlerter,
+		grouping.SystemClock, log, cfg.ProcessBatch,
+		collector,
+	)
 
 	// ── Digest worker ─────────────────────────────────────────────────────────
 	var digestSvc *digest.Service
@@ -138,7 +144,8 @@ func main() {
 	sentryHandler := handler.NewSentryWebhookHandler(ingestUC, sentryparser.New(), cfg.SentrySecret)
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
-	r := server.New(log, pool, ingestUC, projectUC, subscripUC, issueUC, sentryHandler, cfg.IngestRateLimit)
+	r := server.New(log, pool, ingestUC, projectUC, subscripUC, issueUC,
+		sentryHandler, cfg.IngestRateLimit, collector)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddr,

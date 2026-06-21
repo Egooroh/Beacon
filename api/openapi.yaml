@@ -1,0 +1,451 @@
+openapi: 3.1.0
+info:
+  title: Beacon API
+  description: Self-hosted error aggregator with grouping and alerting.
+  version: 1.0.0
+  contact:
+    name: Beacon on GitHub
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: ingest
+    description: Event ingestion
+  - name: projects
+    description: Project management
+  - name: issues
+    description: Issue (incident) management
+  - name: subscriptions
+    description: Notification subscriptions
+  - name: infrastructure
+    description: Health and metrics
+
+paths:
+  /api/v1/ingest:
+    post:
+      tags: [ingest]
+      summary: Ingest an event
+      description: |
+        Accepts an error event in Beacon's native format.
+        Authentication is via the project's ingest token in `X-Beacon-Token`.
+        The event is persisted immediately (202 Accepted); fingerprinting and
+        grouping happen asynchronously.
+      security:
+        - BeaconToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestRequest'
+            example:
+              level: error
+              message: "failed to charge card"
+              environment: production
+              release: "api@1.4.2"
+              exception:
+                type: "*stripe.CardError"
+                value: "card declined"
+                frames:
+                  - function: ChargeCard
+                    module: billing
+                    file: charge.go
+                    line: 88
+                    in_app: true
+              tags:
+                user_id: "42"
+      responses:
+        '202':
+          description: Event queued for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/projects/{id}/webhook/sentry:
+    post:
+      tags: [ingest]
+      summary: Receive a Sentry error webhook
+      description: |
+        Accepts a Sentry error webhook and feeds it into the Beacon pipeline.
+        Signature validation uses HMAC-SHA256 with `BEACON_SENTRY_SECRET`
+        (disabled when the secret is not configured).
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Sentry issue.created webhook payload
+      responses:
+        '202':
+          description: Event queued for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/projects:
+    post:
+      tags: [projects]
+      summary: Create a project
+      description: Creates a new project and returns a one-time ingest token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: "my-service"
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/projects/{id}/issues:
+    get:
+      tags: [issues]
+      summary: List issues
+      description: Returns a paginated list of issues for a project.
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: status
+          in: query
+          description: Filter by issue status
+          schema:
+            $ref: '#/components/schemas/IssueStatus'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Paginated list of issues
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueListResponse'
+
+  /api/v1/issues/{id}/status:
+    patch:
+      tags: [issues]
+      summary: Change issue status
+      description: Transitions an issue to a new status (open/resolved/muted/ignored).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/IssueStatus'
+      responses:
+        '204':
+          description: Status updated
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/projects/{id}/subscriptions:
+    post:
+      tags: [subscriptions]
+      summary: Subscribe to alerts
+      description: Subscribes a chat/channel to alert notifications for a project.
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscribeRequest'
+            examples:
+              telegram:
+                value:
+                  platform: telegram
+                  chat_id: "-1001234567890"
+              slack:
+                value:
+                  platform: slack
+                  chat_id: "C1234567890"
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    get:
+      tags: [subscriptions]
+      summary: List subscriptions
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: List of subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubscriptionResponse'
+
+  /healthz:
+    get:
+      tags: [infrastructure]
+      summary: Liveness check
+      responses:
+        '200':
+          description: Service is alive
+
+  /readyz:
+    get:
+      tags: [infrastructure]
+      summary: Readiness check
+      description: Returns 200 when the database connection is healthy.
+      responses:
+        '200':
+          description: Service is ready
+        '503':
+          description: Service is not ready (database unavailable)
+
+  /metrics:
+    get:
+      tags: [infrastructure]
+      summary: Prometheus metrics
+      responses:
+        '200':
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    BeaconToken:
+      type: apiKey
+      in: header
+      name: X-Beacon-Token
+
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      description: Beacon project UUID
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    IssueStatus:
+      type: string
+      enum: [open, resolved, muted, ignored]
+
+    IngestRequest:
+      type: object
+      required: [message]
+      properties:
+        level:
+          type: string
+          enum: [debug, info, warning, error, fatal]
+          default: error
+        message:
+          type: string
+        environment:
+          type: string
+          example: production
+        release:
+          type: string
+          example: "api@1.4.2"
+        exception:
+          type: object
+          properties:
+            type:
+              type: string
+            value:
+              type: string
+            frames:
+              type: array
+              items:
+                $ref: '#/components/schemas/StackFrame'
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+
+    StackFrame:
+      type: object
+      properties:
+        function:
+          type: string
+        module:
+          type: string
+        file:
+          type: string
+        line:
+          type: integer
+        in_app:
+          type: boolean
+
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: queued
+
+    ProjectResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ingest_token:
+          type: string
+          description: Raw ingest token — shown only once, store it securely.
+
+    Issue:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        fingerprint:
+          type: string
+        title:
+          type: string
+        level:
+          type: string
+        status:
+          $ref: '#/components/schemas/IssueStatus'
+        events_count:
+          type: integer
+          format: int64
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+
+    IssueListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Issue'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    SubscribeRequest:
+      type: object
+      required: [platform, chat_id]
+      properties:
+        platform:
+          type: string
+          enum: [telegram, slack]
+        chat_id:
+          type: string
+
+    SubscriptionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        platform:
+          type: string
+        chat_id:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        text/plain:
+          schema:
+            type: string
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        text/plain:
+          schema:
+            type: string
+    NotFound:
+      description: Resource not found
+      content:
+        text/plain:
+          schema:
+            type: string
+    UnprocessableEntity:
+      description: Validation error or malformed payload
+      content:
+        text/plain:
+          schema:
+            type: string
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string

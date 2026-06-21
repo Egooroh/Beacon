@@ -5,13 +5,14 @@ package metrics
 import "github.com/prometheus/client_golang/prometheus"
 
 // Collector holds all application metrics.
+// It implements grouping.MetricsRecorder and alerting.MetricsRecorder.
 type Collector struct {
-	EventsIngested   prometheus.Counter
-	EventsProcessed  prometheus.Counter
-	IssuesCreated    prometheus.Counter
-	AlertsSent       *prometheus.CounterVec
-	IngestDuration   prometheus.Histogram
-	ProcessingLag    prometheus.Gauge
+	EventsIngested  prometheus.Counter
+	EventsProcessed prometheus.Counter
+	IssuesCreated   prometheus.Counter
+	AlertsSent      *prometheus.CounterVec
+	IngestDuration  prometheus.Histogram
+	ProcessingLag   prometheus.Gauge
 }
 
 // New creates and registers all metrics with the default Prometheus registry.
@@ -31,7 +32,7 @@ func New() (*Collector, error) {
 		}),
 		AlertsSent: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "beacon_alerts_sent_total",
-			Help: "Total alerts sent, partitioned by type (new/spike/regression/digest).",
+			Help: "Total alerts sent, partitioned by type (new_issue/spike/regression).",
 		}, []string{"type"}),
 		IngestDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "beacon_ingest_duration_seconds",
@@ -58,4 +59,16 @@ func New() (*Collector, error) {
 		}
 	}
 	return c, nil
+}
+
+// grouping.MetricsRecorder implementation
+
+func (c *Collector) RecordEventProcessed() { c.EventsProcessed.Inc() }
+func (c *Collector) RecordIssueCreated()   { c.IssuesCreated.Inc() }
+func (c *Collector) SetProcessingLag(n int) { c.ProcessingLag.Set(float64(n)) }
+
+// alerting.MetricsRecorder implementation
+
+func (c *Collector) RecordAlertSent(alertType string) {
+	c.AlertsSent.WithLabelValues(alertType).Inc()
 }

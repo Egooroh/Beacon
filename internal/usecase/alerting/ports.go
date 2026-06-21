@@ -37,3 +37,8 @@ type SubscriptionRepository interface {
 type Clock interface {
 	Now() time.Time
 }
+
+// MetricsRecorder captures alerting metrics. A nil value disables recording.
+type MetricsRecorder interface {
+	RecordAlertSent(alertType string)
+}

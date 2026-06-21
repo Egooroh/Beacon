@@ -20,10 +20,12 @@ type Service struct {
 	cooldown      time.Duration
 	spikeFactor   float64
 	spikeMin      int64
+	metrics       MetricsRecorder
 }
 
 // New creates an alerting Service. notifiers is a slice of platform-specific
 // senders; each is indexed by its Platform() value for O(1) lookup.
+// metrics may be nil to disable recording.
 func New(
 	notifiers []Notifier,
 	issues IssueRepository,
@@ -34,6 +36,7 @@ func New(
 	cooldown time.Duration,
 	spikeFactor float64,
 	spikeMin int64,
+	metrics MetricsRecorder,
 ) *Service {
 	nm := make(map[string]Notifier, len(notifiers))
 	for _, n := range notifiers {
@@ -49,6 +52,7 @@ func New(
 		cooldown:      cooldown,
 		spikeFactor:   spikeFactor,
 		spikeMin:      spikeMin,
+		metrics:       metrics,
 	}
 }
 
@@ -85,6 +89,9 @@ func (s *Service) MaybeAlert(ctx context.Context, issue *domain.Issue, alertType
 			)
 		} else {
 			sent++
+			if s.metrics != nil {
+				s.metrics.RecordAlertSent(string(alertType))
+			}
 		}
 	}
 
