@@ -57,6 +57,32 @@ func (r *SubscriptionRepository) ListProjectsWithSubscriptions(ctx context.Conte
 	return ids, rows.Err()
 }
 
+// ListProjectsByChatID returns all projects where the given chat has a subscription.
+func (r *SubscriptionRepository) ListProjectsByChatID(ctx context.Context, chatID, platform string) ([]*domain.Project, error) {
+	const q = `
+		SELECT p.id, p.name, p.token_hash, p.created_at
+		FROM projects p
+		JOIN subscriptions s ON s.project_id = p.id
+		WHERE s.chat_id = $1 AND s.platform = $2
+		ORDER BY s.created_at DESC`
+
+	rows, err := r.db.Query(ctx, q, chatID, platform)
+	if err != nil {
+		return nil, fmt.Errorf("list projects by chat: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []*domain.Project
+	for rows.Next() {
+		p := &domain.Project{}
+		if err := rows.Scan(&p.ID, &p.Name, &p.TokenHash, &p.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan project: %w", err)
+		}
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
+}
+
 // ListByProject returns all subscriptions for the given project.
 func (r *SubscriptionRepository) ListByProject(ctx context.Context, projectID string) ([]*domain.Subscription, error) {
 	const q = `

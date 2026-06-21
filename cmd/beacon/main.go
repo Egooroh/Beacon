@@ -25,6 +25,7 @@ import (
 	"github.com/Egooroh/beacon/internal/infrastructure/scheduler"
 	server "github.com/Egooroh/beacon/internal/transport/http"
 	"github.com/Egooroh/beacon/internal/transport/http/handler"
+	"github.com/Egooroh/beacon/internal/transport/telegrambot"
 	"github.com/Egooroh/beacon/internal/usecase/alerting"
 	"github.com/Egooroh/beacon/internal/usecase/digest"
 	"github.com/Egooroh/beacon/internal/usecase/grouping"
@@ -138,6 +139,20 @@ func main() {
 			digest.SystemClock, log,
 			cfg.DigestInterval, defaultTopN,
 		)
+	}
+
+	// ── Telegram bot ──────────────────────────────────────────────────────────
+	if cfg.TelegramToken != "" {
+		tgBot, err := telegrambot.New(
+			cfg.TelegramToken,
+			projectUC, subscripUC, issueUC, subRepo,
+			log, cfg.PublicURL,
+		)
+		if err != nil {
+			log.Error("create telegram bot", "error", err)
+		} else {
+			go tgBot.Run(ctx)
+		}
 	}
 
 	// ── Sentry webhook handler ─────────────────────────────────────────────────

@@ -23,6 +23,7 @@ type Config struct {
 	SentrySecret    string        `env:"BEACON_SENTRY_SECRET"`
 	SlackToken      string        `env:"BEACON_SLACK_TOKEN"`
 	IngestRateLimit int           `env:"BEACON_INGEST_RATE_LIMIT" envDefault:"60"`
+	PublicURL       string        `env:"BEACON_PUBLIC_URL"`
 }
 
 // Load parses and validates configuration from environment variables.
