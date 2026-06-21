@@ -14,6 +14,8 @@ import (
 	"github.com/Egooroh/beacon/internal/domain"
 	"github.com/Egooroh/beacon/internal/adapter/fingerprint"
 	"github.com/Egooroh/beacon/internal/adapter/ingest/generic"
+	sentryparser "github.com/Egooroh/beacon/internal/adapter/ingest/sentry"
+	slacknotify "github.com/Egooroh/beacon/internal/adapter/notify/slack"
 	tgnotify "github.com/Egooroh/beacon/internal/adapter/notify/telegram"
 	pgstore "github.com/Egooroh/beacon/internal/adapter/repository/postgres"
 	"github.com/Egooroh/beacon/internal/infrastructure/config"
@@ -22,6 +24,7 @@ import (
 	infrapg "github.com/Egooroh/beacon/internal/infrastructure/postgres"
 	"github.com/Egooroh/beacon/internal/infrastructure/scheduler"
 	server "github.com/Egooroh/beacon/internal/transport/http"
+	"github.com/Egooroh/beacon/internal/transport/http/handler"
 	"github.com/Egooroh/beacon/internal/usecase/alerting"
 	"github.com/Egooroh/beacon/internal/usecase/digest"
 	"github.com/Egooroh/beacon/internal/usecase/grouping"
@@ -81,18 +84,36 @@ func main() {
 	parser      := generic.New()
 	fp          := fingerprint.New()
 
-	// ── Notifier (noop when token not configured) ──────────────────────────────
-	var alertingUC *alerting.Service
+	// ── Notifiers (one per configured platform) ────────────────────────────────
+	var alertNotifiers []alerting.Notifier
+	var digestNotifiers []digest.Notifier
 	if cfg.TelegramToken != "" {
-		notifier := tgnotify.New(cfg.TelegramToken)
+		tg := tgnotify.New(cfg.TelegramToken)
+		alertNotifiers = append(alertNotifiers, tg)
+		digestNotifiers = append(digestNotifiers, tg)
+	}
+	if cfg.SlackToken != "" {
+		sl := slacknotify.New(cfg.SlackToken)
+		alertNotifiers = append(alertNotifiers, sl)
+		digestNotifiers = append(digestNotifiers, sl)
+	}
+
+	// ── Use cases ─────────────────────────────────────────────────────────────
+	ingestUC   := ingest.New(eventRepo, projectRepo, parser, ingest.SystemClock)
+	projectUC  := project.New(projectRepo)
+	subscripUC := subscription.New(subRepo, projectRepo)
+	issueUC    := issueuc.New(issueRepo)
+
+	// ── Alerting (only when at least one notifier is configured) ───────────────
+	var alertingUC *alerting.Service
+	if len(alertNotifiers) > 0 {
 		alertingUC = alerting.New(
-			notifier, issueRepo, projectRepo, subRepo,
+			alertNotifiers, issueRepo, projectRepo, subRepo,
 			alerting.SystemClock, log,
 			cfg.AlertCooldown, cfg.SpikeFactor, cfg.SpikeMin,
 		)
 	}
 
-	// alerter passed to grouping: may be nil → noop alerter inside grouping
 	var groupAlerter grouping.Alerter
 	if alertingUC != nil {
 		groupAlerter = alertingUC
@@ -100,26 +121,24 @@ func main() {
 		groupAlerter = noopAlerter{}
 	}
 
-	// ── Use cases ─────────────────────────────────────────────────────────────
-	ingestUC    := ingest.New(eventRepo, projectRepo, parser, ingest.SystemClock)
-	projectUC   := project.New(projectRepo)
-	subscripUC  := subscription.New(subRepo, projectRepo)
-	issueUC     := issueuc.New(issueRepo)
-	groupingUC  := grouping.New(eventRepo, issueRepo, fp, groupAlerter, grouping.SystemClock, log, cfg.ProcessBatch)
+	groupingUC := grouping.New(eventRepo, issueRepo, fp, groupAlerter, grouping.SystemClock, log, cfg.ProcessBatch)
 
 	// ── Digest worker ─────────────────────────────────────────────────────────
 	var digestSvc *digest.Service
-	if alertingUC != nil {
+	if len(digestNotifiers) > 0 {
 		digestSvc = digest.New(
 			issueRepo, subRepo, projectRepo,
-			tgnotify.New(cfg.TelegramToken),
+			digestNotifiers,
 			digest.SystemClock, log,
 			cfg.DigestInterval, defaultTopN,
 		)
 	}
 
+	// ── Sentry webhook handler ─────────────────────────────────────────────────
+	sentryHandler := handler.NewSentryWebhookHandler(ingestUC, sentryparser.New(), cfg.SentrySecret)
+
 	// ── HTTP server ───────────────────────────────────────────────────────────
-	r := server.New(log, pool, ingestUC, projectUC, subscripUC, issueUC)
+	r := server.New(log, pool, ingestUC, projectUC, subscripUC, issueUC, sentryHandler, cfg.IngestRateLimit)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddr,

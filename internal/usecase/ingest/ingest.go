@@ -54,6 +54,17 @@ func (uc *UseCase) Accept(ctx context.Context, rawToken string, payload []byte) 
 	return nil
 }
 
+// AcceptForProject saves a pre-parsed event for a known project.
+// Used by webhook adapters that perform their own authentication (e.g. Sentry HMAC).
+func (uc *UseCase) AcceptForProject(ctx context.Context, projectID string, event *domain.Event) error {
+	event.ProjectID = projectID
+	event.ReceivedAt = uc.clock.Now()
+	if err := uc.events.Save(ctx, event); err != nil {
+		return fmt.Errorf("save event: %w", err)
+	}
+	return nil
+}
+
 // SystemClock is the production Clock implementation backed by time.Now.
 var SystemClock Clock = realClock{}
 

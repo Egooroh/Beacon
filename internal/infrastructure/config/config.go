@@ -21,6 +21,8 @@ type Config struct {
 	SpikeMin        int64         `env:"BEACON_SPIKE_MIN"        envDefault:"10"`
 	AlertCooldown   time.Duration `env:"BEACON_ALERT_COOLDOWN"   envDefault:"15m"`
 	SentrySecret    string        `env:"BEACON_SENTRY_SECRET"`
+	SlackToken      string        `env:"BEACON_SLACK_TOKEN"`
+	IngestRateLimit int           `env:"BEACON_INGEST_RATE_LIMIT" envDefault:"60"`
 }
 
 // Load parses and validates configuration from environment variables.

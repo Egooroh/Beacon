@@ -17,19 +17,20 @@ type Service struct {
 	issues        IssueRepository
 	subscriptions SubscriptionRepository
 	projects      ProjectRepository
-	notifier      Notifier
+	notifiers     map[string]Notifier
 	clock         Clock
 	log           *slog.Logger
 	window        time.Duration
 	topN          int
 }
 
-// New creates a digest Service.
+// New creates a digest Service. notifiers is a slice of platform-specific
+// senders; each is indexed by its Platform() value for O(1) lookup.
 func New(
 	issues IssueRepository,
 	subscriptions SubscriptionRepository,
 	projects ProjectRepository,
-	notifier Notifier,
+	notifiers []Notifier,
 	clock Clock,
 	log *slog.Logger,
 	window time.Duration,
@@ -38,11 +39,15 @@ func New(
 	if topN <= 0 {
 		topN = defaultTopN
 	}
+	nm := make(map[string]Notifier, len(notifiers))
+	for _, n := range notifiers {
+		nm[n.Platform()] = n
+	}
 	return &Service{
 		issues:        issues,
 		subscriptions: subscriptions,
 		projects:      projects,
-		notifier:      notifier,
+		notifiers:     nm,
 		clock:         clock,
 		log:           log,
 		window:        window,
@@ -87,10 +92,11 @@ func (s *Service) sendForProject(ctx context.Context, projectID string) error {
 
 	text := formatDigest(project, issues, s.window)
 	for _, sub := range subs {
-		if sub.Platform != s.notifier.Platform() {
+		n, ok := s.notifiers[sub.Platform]
+		if !ok {
 			continue
 		}
-		if err := s.notifier.Send(ctx, sub.ChatID, text); err != nil {
+		if err := n.Send(ctx, sub.ChatID, text); err != nil {
 			s.log.Error("send digest failed", "chat_id", sub.ChatID, "error", err)
 		}
 	}

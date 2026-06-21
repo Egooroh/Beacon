@@ -64,7 +64,7 @@ func (c *fixedClock) Now() time.Time { return c.t }
 func newService(ir digest.IssueRepository, sr digest.SubscriptionRepository,
 	pr digest.ProjectRepository, n digest.Notifier,
 ) *digest.Service {
-	return digest.New(ir, sr, pr, n, &fixedClock{t: time.Now()},
+	return digest.New(ir, sr, pr, []digest.Notifier{n}, &fixedClock{t: time.Now()},
 		slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour, 10)
 }
 

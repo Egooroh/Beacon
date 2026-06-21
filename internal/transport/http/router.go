@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -20,6 +21,7 @@ type DBPinger interface {
 }
 
 // New assembles and returns the application HTTP router.
+// sentryWebhook may be nil; when non-nil its route is registered.
 func New(
 	log *slog.Logger,
 	db DBPinger,
@@ -27,6 +29,8 @@ func New(
 	projects handler.ProjectCreator,
 	subscriber handler.Subscriber,
 	issues handler.IssueManager,
+	sentryWebhook *handler.SentryWebhookHandler,
+	ingestRateLimit int,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -54,8 +58,17 @@ func New(
 		r.Get("/projects/{id}/issues", issueH.List)
 		r.Patch("/issues/{id}/status", issueH.SetStatus)
 
-		// Ingest requires a valid X-Beacon-Token; the use case performs DB auth.
-		r.With(middleware.RequireToken).Post("/ingest", handler.NewIngestHandler(ingester).Handle)
+		// Ingest: token auth + per-IP rate limiting.
+		r.With(
+			middleware.RateLimit(ingestRateLimit, time.Minute),
+			middleware.RequireToken,
+		).Post("/ingest", handler.NewIngestHandler(ingester).Handle)
+
+		// Sentry webhook: HMAC auth handled inside the handler.
+		if sentryWebhook != nil {
+			r.With(middleware.RateLimit(ingestRateLimit, time.Minute)).
+				Post("/projects/{id}/webhook/sentry", sentryWebhook.Handle)
+		}
 	})
 
 	return r

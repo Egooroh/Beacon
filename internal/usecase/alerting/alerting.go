@@ -11,7 +11,7 @@ import (
 
 // Service handles notification routing with cooldown and spike detection.
 type Service struct {
-	notifier      Notifier
+	notifiers     map[string]Notifier
 	issues        IssueRepository
 	projects      ProjectRepository
 	subscriptions SubscriptionRepository
@@ -22,9 +22,10 @@ type Service struct {
 	spikeMin      int64
 }
 
-// New creates an alerting Service.
+// New creates an alerting Service. notifiers is a slice of platform-specific
+// senders; each is indexed by its Platform() value for O(1) lookup.
 func New(
-	notifier Notifier,
+	notifiers []Notifier,
 	issues IssueRepository,
 	projects ProjectRepository,
 	subscriptions SubscriptionRepository,
@@ -34,8 +35,12 @@ func New(
 	spikeFactor float64,
 	spikeMin int64,
 ) *Service {
+	nm := make(map[string]Notifier, len(notifiers))
+	for _, n := range notifiers {
+		nm[n.Platform()] = n
+	}
 	return &Service{
-		notifier:      notifier,
+		notifiers:     nm,
 		issues:        issues,
 		projects:      projects,
 		subscriptions: subscriptions,
@@ -68,10 +73,11 @@ func (s *Service) MaybeAlert(ctx context.Context, issue *domain.Issue, alertType
 
 	sent := 0
 	for _, sub := range subs {
-		if sub.Platform != s.notifier.Platform() {
+		n, ok := s.notifiers[sub.Platform]
+		if !ok {
 			continue
 		}
-		if err := s.notifier.Notify(ctx, alert, sub.ChatID); err != nil {
+		if err := n.Notify(ctx, alert, sub.ChatID); err != nil {
 			s.log.Error("notify failed",
 				"platform", sub.Platform,
 				"chat_id", sub.ChatID,
@@ -83,7 +89,7 @@ func (s *Service) MaybeAlert(ctx context.Context, issue *domain.Issue, alertType
 	}
 
 	if sent == 0 {
-		return nil // no subscriptions configured — nothing to record
+		return nil // no subscriptions matched — nothing to record
 	}
 
 	now := s.clock.Now()
