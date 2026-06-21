@@ -22,7 +22,7 @@ type Notifier struct {
 // New creates a Telegram Notifier. token is the Bot API token from @BotFather.
 func New(token string) *Notifier {
 	return &Notifier{
-		token: token,
+		token:  token,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }

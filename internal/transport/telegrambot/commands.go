@@ -50,7 +50,7 @@ func (b *Bot) handleUpdate(ctx context.Context, u tgbotapi.Update) {
 	}
 }
 
-func (b *Bot) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
+func (b *Bot) handleCommand(_ context.Context, msg *tgbotapi.Message) {
 	switch msg.Command() {
 	case "start", "help":
 		b.cmdStart(msg.Chat.ID)

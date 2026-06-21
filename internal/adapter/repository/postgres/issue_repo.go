@@ -41,11 +41,11 @@ func (r *IssueRepository) Upsert(ctx context.Context, ev *domain.Event) (*domain
 	title := issueTitle(ev)
 
 	var (
-		issue          domain.Issue
-		fpStr          string
-		levelStr       string
-		statusStr      string
-		created        bool
+		issue     domain.Issue
+		fpStr     string
+		levelStr  string
+		statusStr string
+		created   bool
 	)
 	err := r.db.QueryRow(ctx, q,
 		ev.ProjectID,

@@ -34,10 +34,10 @@ func (f *fakeNotifier) Notify(_ context.Context, _ domain.Alert, chatID string) 
 func (f *fakeNotifier) Platform() string { return f.platform }
 
 type fakeIssueRepo struct {
-	updateErr     error
+	updateErr      error
 	lastAlertCalls int
-	openIssues    []*domain.Issue
-	windowCount   int64
+	openIssues     []*domain.Issue
+	windowCount    int64
 }
 
 func (f *fakeIssueRepo) UpdateLastAlertAt(_ context.Context, _ string, _ time.Time) error {
@@ -160,9 +160,9 @@ func TestMaybeAlert_ProjectLookupError_ReturnsError(t *testing.T) {
 func TestCheckSpikes_SpikeTriggersAlert(t *testing.T) {
 	n := &fakeNotifier{platform: "telegram"}
 	ir2 := &countingWindowRepo{
-		openIssues:    []*domain.Issue{{ID: "i", ProjectID: "p"}},
-		windowCounts:  []int64{55, 66}, // 1h=55, 2h=66 → prevHour=11; 55 >= 5*11=55 → alert
-		updateLastAt:  nil,
+		openIssues:   []*domain.Issue{{ID: "i", ProjectID: "p"}},
+		windowCounts: []int64{55, 66}, // 1h=55, 2h=66 → prevHour=11; 55 >= 5*11=55 → alert
+		updateLastAt: nil,
 	}
 	sr := &fakeSubRepo{subs: []*domain.Subscription{{Platform: "telegram", ChatID: "-1"}}}
 	pr := &fakeProjectRepo{project: &domain.Project{ID: "p", Name: "App"}}

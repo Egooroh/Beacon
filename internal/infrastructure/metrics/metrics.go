@@ -63,8 +63,8 @@ func New() (*Collector, error) {
 
 // grouping.MetricsRecorder implementation
 
-func (c *Collector) RecordEventProcessed() { c.EventsProcessed.Inc() }
-func (c *Collector) RecordIssueCreated()   { c.IssuesCreated.Inc() }
+func (c *Collector) RecordEventProcessed()  { c.EventsProcessed.Inc() }
+func (c *Collector) RecordIssueCreated()    { c.IssuesCreated.Inc() }
 func (c *Collector) SetProcessingLag(n int) { c.ProcessingLag.Set(float64(n)) }
 
 // alerting.MetricsRecorder implementation

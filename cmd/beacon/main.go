@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Egooroh/beacon/internal/domain"
 	"github.com/Egooroh/beacon/internal/adapter/fingerprint"
 	"github.com/Egooroh/beacon/internal/adapter/ingest/generic"
 	sentryparser "github.com/Egooroh/beacon/internal/adapter/ingest/sentry"
 	slacknotify "github.com/Egooroh/beacon/internal/adapter/notify/slack"
 	tgnotify "github.com/Egooroh/beacon/internal/adapter/notify/telegram"
 	pgstore "github.com/Egooroh/beacon/internal/adapter/repository/postgres"
+	"github.com/Egooroh/beacon/internal/domain"
 	"github.com/Egooroh/beacon/internal/infrastructure/config"
 	"github.com/Egooroh/beacon/internal/infrastructure/logger"
 	"github.com/Egooroh/beacon/internal/infrastructure/metrics"
@@ -79,12 +79,12 @@ func main() {
 	}
 
 	// ── Adapters ──────────────────────────────────────────────────────────────
-	eventRepo   := pgstore.NewEventRepository(pool)
+	eventRepo := pgstore.NewEventRepository(pool)
 	projectRepo := pgstore.NewProjectRepository(pool)
-	issueRepo   := pgstore.NewIssueRepository(pool)
-	subRepo     := pgstore.NewSubscriptionRepository(pool)
-	parser      := generic.New()
-	fp          := fingerprint.New()
+	issueRepo := pgstore.NewIssueRepository(pool)
+	subRepo := pgstore.NewSubscriptionRepository(pool)
+	parser := generic.New()
+	fp := fingerprint.New()
 
 	// ── Notifiers (one per configured platform) ────────────────────────────────
 	var alertNotifiers []alerting.Notifier
@@ -101,10 +101,10 @@ func main() {
 	}
 
 	// ── Use cases ─────────────────────────────────────────────────────────────
-	ingestUC   := ingest.New(eventRepo, projectRepo, parser, ingest.SystemClock)
-	projectUC  := project.New(projectRepo)
+	ingestUC := ingest.New(eventRepo, projectRepo, parser, ingest.SystemClock)
+	projectUC := project.New(projectRepo)
 	subscripUC := subscription.New(subRepo, projectRepo)
-	issueUC    := issueuc.New(issueRepo)
+	issueUC := issueuc.New(issueRepo)
 
 	// ── Alerting (only when at least one notifier is configured) ───────────────
 	var alertingUC *alerting.Service

@@ -36,6 +36,9 @@ linters-settings:
     no-mixed-args: true
     kv-only: true
 
+  goimports:
+    local-prefixes: github.com/Egooroh/beacon
+
   gocritic:
     enabled-tags:
       - diagnostic
