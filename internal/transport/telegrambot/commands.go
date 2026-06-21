@@ -39,7 +39,7 @@ func langKb() *tgbotapi.InlineKeyboardMarkup {
 
 // ── Dispatcher ────────────────────────────────────────────────────────────────
 
-func (b *Bot) handleUpdate(ctx context.Context, u tgbotapi.Update) {
+func (b *Bot) handleUpdate(ctx context.Context, u *tgbotapi.Update) {
 	switch {
 	case u.CallbackQuery != nil:
 		b.handleCallback(ctx, u.CallbackQuery)
@@ -155,9 +155,9 @@ func (b *Bot) cbListIssues(ctx context.Context, chatID int64, projectID string) 
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "<b>Open issues</b> (%d total)\n\n", total)
+	_, _ = fmt.Fprintf(&sb, "<b>Open issues</b> (%d total)\n\n", total)
 	for i, iss := range issues {
-		fmt.Fprintf(&sb, "%d. [%s] %s\n   Events: %d\n\n",
+		_, _ = fmt.Fprintf(&sb, "%d. [%s] %s\n   Events: %d\n\n",
 			i+1, iss.Level, escHTML(iss.Title), iss.EventsCount)
 	}
 

@@ -94,7 +94,7 @@ func (b *Bot) Run(ctx context.Context) {
 			if !ok {
 				return
 			}
-			b.handleUpdate(ctx, update)
+			b.handleUpdate(ctx, &update)
 		}
 	}
 }
