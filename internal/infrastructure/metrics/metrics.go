@@ -61,14 +61,16 @@ func New() (*Collector, error) {
 	return c, nil
 }
 
-// grouping.MetricsRecorder implementation
+// RecordEventProcessed increments the events-processed counter.
+func (c *Collector) RecordEventProcessed() { c.EventsProcessed.Inc() }
 
-func (c *Collector) RecordEventProcessed()  { c.EventsProcessed.Inc() }
-func (c *Collector) RecordIssueCreated()    { c.IssuesCreated.Inc() }
+// RecordIssueCreated increments the issues-created counter.
+func (c *Collector) RecordIssueCreated() { c.IssuesCreated.Inc() }
+
+// SetProcessingLag records the current number of unprocessed events.
 func (c *Collector) SetProcessingLag(n int) { c.ProcessingLag.Set(float64(n)) }
 
-// alerting.MetricsRecorder implementation
-
+// RecordAlertSent increments the alerts-sent counter for the given alert type.
 func (c *Collector) RecordAlertSent(alertType string) {
 	c.AlertsSent.WithLabelValues(alertType).Inc()
 }
