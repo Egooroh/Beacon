@@ -55,7 +55,7 @@ func (h *SubscriptionHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(toSubResponse(sub))
+	_ = json.NewEncoder(w).Encode(toSubResponse(sub))
 }
 
 // List handles GET /api/v1/projects/{id}/subscriptions.
@@ -73,7 +73,7 @@ func (h *SubscriptionHandler) List(w http.ResponseWriter, r *http.Request) {
 		resp[i] = toSubResponse(s)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 type subResponse struct {

@@ -68,7 +68,7 @@ func (h *IssueHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(struct {
+	_ = json.NewEncoder(w).Encode(struct {
 		Items  []item `json:"items"`
 		Total  int64  `json:"total"`
 		Limit  int    `json:"limit"`
